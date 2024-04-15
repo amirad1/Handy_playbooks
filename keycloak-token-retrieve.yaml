@@ -1,0 +1,45 @@
+---
+- name: refresh token
+  hosts: mysrv
+  user: <linux local user>
+  gather_facts: false
+  vars:
+    oidc_url: https://<keycloak-url>/auth/realms/<your-relam>/protocol/openid-connect/token
+    realm_url: https://<keycloak-url>/auth/realms/<your-realms>
+    client_id: #
+    client_secret: #
+    username: #
+    password: #
+  tasks:
+    - name: Generate Authentication token
+      uri:
+        url: "{{ oidc_url }}"
+        method: POST
+        body_format: form-urlencoded
+        body: "grant_type=password&scope=openid&client_id={{ client_id }}&client_secret={{ client_secret }}&username={{ username }}&password={{ password }}"
+        return_content: yes
+      register: json_data
+
+    - name: Extract tokens
+      set_fact:
+        id_token: "{{ json_data.json.id_token }}"
+        refresh_token: "{{ json_data.json.refresh_token }}"
+        access_token: "{{ json_data.json.access_token }}"
+
+    - name: Print tokens
+      debug:
+        msg: "echo This is id_token: {{ id_token }}"
+        
+    - name: Update kubectl config
+      shell: "kubectl config set-credentials {{ username }} --auth-provider=oidc --auth-provider-arg=idp-issuer-url={{ realm_url }} --auth-provider-arg=client-id={{ client_id }} --auth-provider-arg=client-secret={{ client_secret }} --auth-provider-arg=refresh-token={{ refresh_token }} --auth-provider-arg=id-token={{ id_token }}"
+
+    - name: Create new context
+      shell: "kubectl config set-context {{ username }} --cluster=kubernetes --user={{ username }}"
+
+    - name: Validate access with new context
+      shell: "kubectl --context={{ username }} get pods"
+      register: result
+
+    - name: Pods Call Test
+      debug:
+        var : result.stdout
